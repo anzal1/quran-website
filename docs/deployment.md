@@ -22,6 +22,8 @@ Set `GEMINI_API_KEY` in `.env`. The app uses `GEMINI_MODEL`, defaulting to `gemi
 
 Without a key, search still works against the loaded data and returns a non-AI fallback answer.
 
+`GEMINI_TIMEOUT_MS` defaults to `2500`. If Gemini is slow, the app returns the verse-backed fallback answer instead of making users wait indefinitely.
+
 ## Production URL
 
 Set `NEXT_PUBLIC_SITE_URL` to the final deployed URL, for example `https://your-domain.com`. This is used for canonical URLs, Open Graph previews, and the sitemap.
@@ -74,6 +76,8 @@ npm run db:embed
 The import is idempotent. Re-running it updates existing rows and leaves already-generated embeddings in place unless the document content changes.
 
 Expected production counts for one translation are roughly 114 surahs, 6,236 ayahs, 6,236 translations, and 6,236 search documents. Each extra selected translation adds another 6,236 translation/search-document rows and more embedding work. The multilingual import above creates roughly 43,652 searchable documents.
+
+Until embeddings are generated, the app automatically skips semantic vector search and uses fast reference, keyword, and fuzzy search. Set `ENABLE_SEMANTIC_SEARCH=false` if you ever need to force vector search off in production.
 
 ## Custom Domain
 

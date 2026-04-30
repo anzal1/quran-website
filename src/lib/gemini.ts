@@ -22,7 +22,7 @@ export async function generateGroundedAnswer(
 ) {
   const ai = getClient();
   if (!ai) {
-    return fallbackAnswer(sources);
+    return fallbackAnswer(sources, answerLanguage);
   }
 
   const model = process.env.GEMINI_MODEL || defaultModel;
@@ -54,12 +54,19 @@ ${sourceText}
 
 Return no more than 85 words total. Use 2 short paragraphs and no markdown table.`;
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
+  const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || "2500");
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model,
+      contents: prompt,
+    }),
+    timeoutMs,
+  ).catch((error) => {
+    console.warn("Gemini answer timed out or failed", error);
+    return null;
   });
 
-  return response.text?.trim() || fallbackAnswer(sources);
+  return response?.text?.trim() || fallbackAnswer(sources, answerLanguage);
 }
 
 export async function embedText(text: string) {
@@ -80,9 +87,38 @@ export async function embedText(text: string) {
   return embedding && embedding.length > 0 ? embedding : null;
 }
 
-function fallbackAnswer(sources: SourceAyah[]) {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]);
+}
+
+function fallbackAnswer(sources: SourceAyah[], answerLanguage = "English") {
+  const languageKey = answerLanguage.toLowerCase();
+
   if (sources.length === 0) {
-    return "I could not find a strong Quran-grounded match for that query in the loaded dataset. Try a more specific theme, ayah reference, or Arabic/English keyword.";
+    const emptyFallbacks: Record<string, string> = {
+      arabic:
+        "لم أجد مطابقة قوية في البيانات المحملة. جرّب موضوعا أدق أو رقم آية أو كلمة مفتاحية.",
+      french:
+        "Je n'ai pas trouvé de correspondance forte dans les donnees chargees. Essayez un theme plus precis, une reference de verset ou un mot-cle.",
+      german:
+        "Ich habe in den geladenen Daten keinen starken Treffer gefunden. Versuche ein genaueres Thema, eine Versreferenz oder ein Stichwort.",
+      indonesian:
+        "Saya belum menemukan kecocokan kuat dalam data yang dimuat. Coba tema yang lebih spesifik, rujukan ayat, atau kata kunci.",
+      turkish:
+        "Yuklenen veride guclu bir eslesme bulamadim. Daha belirli bir konu, ayet numarasi veya anahtar kelime deneyin.",
+      urdu:
+        "لوڈ شدہ ڈیٹا میں مضبوط نتیجہ نہیں ملا۔ کوئی خاص موضوع، آیت کا حوالہ، یا کلیدی لفظ آزمائیں۔",
+    };
+
+    return (
+      emptyFallbacks[languageKey] ??
+      "I could not find a strong Quran-grounded match for that query in the loaded dataset. Try a more specific theme, ayah reference, or keyword."
+    );
   }
 
   const citations = sources
@@ -90,5 +126,17 @@ function fallbackAnswer(sources: SourceAyah[]) {
     .map((source) => `[${source.reference}]`)
     .join(", ");
 
-  return `The strongest retrieved ayahs point to patience, remembrance, guidance, and prayer ${citations}. This is for study and reflection; for rulings or personal religious decisions, ask a qualified scholar.`;
+  const sourceFallbacks: Record<string, string> = {
+    arabic: `أقوى الآيات المسترجعة تظهر معاني الصبر والذكر والهداية والصلاة ${citations}. هذا للمدارسة والتأمل، وليس للفتوى أو القرارات الدينية الشخصية.`,
+    french: `Les versets les plus pertinents indiquent la patience, le rappel, la guidance et la priere ${citations}. Ceci sert a l'etude et a la reflexion, pas aux avis juridiques religieux.`,
+    german: `Die staerksten gefundenen Verse weisen auf Geduld, Gedenken, Rechtleitung und Gebet hin ${citations}. Dies ist zum Lernen und Nachdenken, nicht fuer Rechtsurteile oder persoenliche religioese Entscheidungen.`,
+    indonesian: `Ayat terkuat yang ditemukan menunjuk pada kesabaran, zikir, petunjuk, dan doa ${citations}. Ini untuk belajar dan refleksi, bukan untuk fatwa atau keputusan agama pribadi.`,
+    turkish: `Bulunan en guclu ayetler sabir, zikir, hidayet ve namaza isaret ediyor ${citations}. Bu calisma ve tefekkur icindir; dini hukum veya kisisel kararlar icin degildir.`,
+    urdu: `سب سے مضبوط ملنے والی آیات صبر، ذکر، ہدایت، اور نماز کی طرف اشارہ کرتی ہیں ${citations}۔ یہ مطالعہ اور غور کے لیے ہے، فتویٰ یا ذاتی دینی فیصلوں کے لیے نہیں۔`,
+  };
+
+  return (
+    sourceFallbacks[languageKey] ??
+    `The strongest retrieved ayahs point to patience, remembrance, guidance, and prayer ${citations}. This is for study and reflection; for rulings or personal religious decisions, ask a qualified scholar.`
+  );
 }

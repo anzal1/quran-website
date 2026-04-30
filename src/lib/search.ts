@@ -21,6 +21,9 @@ type SearchRow = {
   why_matched: string;
 };
 
+let embeddedDocumentsCache: { checkedAt: number; hasEmbeddings: boolean } | null = null;
+const embeddedDocumentsCacheMs = 60_000;
+
 export async function searchQuran(
   query: string,
   preferredEdition = defaultReadingLanguage.edition,
@@ -43,10 +46,24 @@ export async function searchQuran(
   }
 
   try {
+    if (detectReference(trimmed)) {
+      const referenceRows = await searchReference(trimmed, edition);
+      const merged = mergeRows(referenceRows);
+
+      if (merged.length > 0) {
+        return {
+          provider: "database" as const,
+          sources: merged.slice(0, 3),
+          lenses: inferLenses(trimmed),
+        };
+      }
+    }
+
+    const canSearchSemantically = await hasEmbeddedDocuments();
     const [referenceRows, lexicalRows, vectorRows] = await Promise.all([
       searchReference(trimmed, edition),
       searchLexical(trimmed, edition),
-      searchSemantic(trimmed, edition),
+      canSearchSemantically ? searchSemantic(trimmed, edition) : Promise.resolve([]),
     ]);
 
     const merged = mergeRows([...referenceRows, ...lexicalRows, ...vectorRows]);
@@ -66,6 +83,35 @@ export async function searchQuran(
     const sample = searchSample(trimmed);
     return { provider: "demo" as const, ...sample };
   }
+}
+
+async function hasEmbeddedDocuments() {
+  if (process.env.ENABLE_SEMANTIC_SEARCH === "false") return false;
+
+  const now = Date.now();
+  if (
+    embeddedDocumentsCache &&
+    now - embeddedDocumentsCache.checkedAt < embeddedDocumentsCacheMs
+  ) {
+    return embeddedDocumentsCache.hasEmbeddings;
+  }
+
+  const sql = getSql();
+  const [row] = await sql<{ has_embeddings: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM search_documents
+      WHERE embedding IS NOT NULL
+      LIMIT 1
+    ) AS has_embeddings
+  `;
+
+  embeddedDocumentsCache = {
+    checkedAt: now,
+    hasEmbeddings: Boolean(row?.has_embeddings),
+  };
+
+  return embeddedDocumentsCache.hasEmbeddings;
 }
 
 async function searchReference(query: string, preferredEdition: string) {
@@ -306,5 +352,5 @@ function buildLexicalQuery(normalized: string) {
     .map((term) => term.trim())
     .filter((term) => term.length > 1 && !stopwords.has(term));
 
-  return terms.length > 0 ? terms.join(" ") : normalized;
+  return terms.length > 0 ? terms.join(" OR ") : normalized;
 }
