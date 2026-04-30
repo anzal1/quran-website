@@ -2,6 +2,7 @@ import { getSql, hasDatabase } from "@/db/client";
 
 import { detectReference, normalizeSearchText } from "./arabic";
 import { embedText } from "./gemini";
+import { defaultReadingLanguage, getReadingLanguageByEdition } from "./languages";
 import { inferLenses, searchSample } from "./sample-data";
 import type { SourceAyah } from "./types";
 
@@ -20,8 +21,14 @@ type SearchRow = {
   why_matched: string;
 };
 
-export async function searchQuran(query: string) {
+export async function searchQuran(
+  query: string,
+  preferredEdition = defaultReadingLanguage.edition,
+) {
   const trimmed = query.trim();
+  const readingLanguage = getReadingLanguageByEdition(preferredEdition);
+  const edition = readingLanguage.edition;
+
   if (!trimmed) {
     return {
       provider: "demo" as const,
@@ -37,9 +44,9 @@ export async function searchQuran(query: string) {
 
   try {
     const [referenceRows, lexicalRows, vectorRows] = await Promise.all([
-      searchReference(trimmed),
-      searchLexical(trimmed),
-      searchSemantic(trimmed),
+      searchReference(trimmed, edition),
+      searchLexical(trimmed, edition),
+      searchSemantic(trimmed, edition),
     ]);
 
     const merged = mergeRows([...referenceRows, ...lexicalRows, ...vectorRows]);
@@ -61,7 +68,7 @@ export async function searchQuran(query: string) {
   }
 }
 
-async function searchReference(query: string) {
+async function searchReference(query: string, preferredEdition: string) {
   const reference = detectReference(query);
   if (!reference) return [];
 
@@ -82,17 +89,30 @@ async function searchReference(query: string) {
       'Exact ayah reference match.' AS why_matched
     FROM ayahs a
     JOIN surahs s ON s.id = a.surah_id
-    LEFT JOIN translations t ON t.ayah_id = a.id AND t.edition_identifier = 'en.pickthall'
+    LEFT JOIN LATERAL (
+      SELECT text, edition_identifier
+      FROM translations
+      WHERE ayah_id = a.id
+        AND edition_identifier IN (${preferredEdition}, 'en.sahih', 'en.pickthall')
+      ORDER BY CASE
+        WHEN edition_identifier = ${preferredEdition} THEN 0
+        WHEN edition_identifier = 'en.sahih' THEN 1
+        WHEN edition_identifier = 'en.pickthall' THEN 2
+        ELSE 3
+      END
+      LIMIT 1
+    ) t ON true
     WHERE a.surah_id = ${reference.surah}
       AND a.number_in_surah = ${reference.ayah}
     LIMIT 1
   `;
 }
 
-async function searchLexical(query: string) {
+async function searchLexical(query: string, preferredEdition: string) {
   const sql = getSql();
   const normalized = normalizeSearchText(query);
   const lexicalQuery = buildLexicalQuery(normalized);
+  const preferredLanguage = getReadingLanguageByEdition(preferredEdition).code;
 
   return sql<SearchRow[]>`
     WITH query AS (
@@ -106,8 +126,14 @@ async function searchLexical(query: string) {
         sd.surah_id,
         sd.reference,
         sd.source,
+        sd.language,
         ts_rank_cd(sd.search_vector, query.tsq) +
-          similarity(sd.normalized_content, query.raw) AS score,
+          similarity(sd.normalized_content, query.raw) +
+          CASE
+            WHEN sd.source = ${preferredEdition} THEN 0.25
+            WHEN sd.language = ${preferredLanguage} THEN 0.12
+            ELSE 0
+          END AS score,
         CASE
           WHEN sd.search_vector @@ query.tsq THEN 'Keyword match in indexed Quran document.'
           ELSE 'Fuzzy phrase match in indexed Quran document.'
@@ -138,18 +164,32 @@ async function searchLexical(query: string) {
     FROM ranked_docs rd
     JOIN ayahs a ON a.id = rd.ayah_id
     JOIN surahs s ON s.id = a.surah_id
-    LEFT JOIN translations t ON t.ayah_id = a.id AND t.edition_identifier = 'en.pickthall'
+    LEFT JOIN LATERAL (
+      SELECT text, edition_identifier
+      FROM translations
+      WHERE ayah_id = a.id
+        AND edition_identifier IN (${preferredEdition}, rd.source, 'en.sahih', 'en.pickthall')
+      ORDER BY CASE
+        WHEN edition_identifier = ${preferredEdition} THEN 0
+        WHEN edition_identifier = rd.source THEN 1
+        WHEN edition_identifier = 'en.sahih' THEN 2
+        WHEN edition_identifier = 'en.pickthall' THEN 3
+        ELSE 4
+      END
+      LIMIT 1
+    ) t ON true
     ORDER BY rd.score DESC
     LIMIT 10
   `;
 }
 
-async function searchSemantic(query: string) {
+async function searchSemantic(query: string, preferredEdition: string) {
   const embedding = await embedText(query);
   if (!embedding) return [];
 
   const sql = getSql();
   const vector = `[${embedding.join(",")}]`;
+  const preferredLanguage = getReadingLanguageByEdition(preferredEdition).code;
 
   return sql<SearchRow[]>`
     WITH ranked_docs AS (
@@ -158,7 +198,12 @@ async function searchSemantic(query: string) {
         sd.surah_id,
         sd.reference,
         sd.source,
-        1 - (sd.embedding <=> ${vector}::vector) AS score,
+        1 - (sd.embedding <=> ${vector}::vector) +
+          CASE
+            WHEN sd.source = ${preferredEdition} THEN 0.08
+            WHEN sd.language = ${preferredLanguage} THEN 0.04
+            ELSE 0
+          END AS score,
         'Semantic match from Gemini embedding search.' AS why_matched
       FROM search_documents sd
       WHERE sd.embedding IS NOT NULL
@@ -182,7 +227,20 @@ async function searchSemantic(query: string) {
     FROM ranked_docs rd
     JOIN ayahs a ON a.id = rd.ayah_id
     JOIN surahs s ON s.id = a.surah_id
-    LEFT JOIN translations t ON t.ayah_id = a.id AND t.edition_identifier = 'en.pickthall'
+    LEFT JOIN LATERAL (
+      SELECT text, edition_identifier
+      FROM translations
+      WHERE ayah_id = a.id
+        AND edition_identifier IN (${preferredEdition}, rd.source, 'en.sahih', 'en.pickthall')
+      ORDER BY CASE
+        WHEN edition_identifier = ${preferredEdition} THEN 0
+        WHEN edition_identifier = rd.source THEN 1
+        WHEN edition_identifier = 'en.sahih' THEN 2
+        WHEN edition_identifier = 'en.pickthall' THEN 3
+        ELSE 4
+      END
+      LIMIT 1
+    ) t ON true
     ORDER BY rd.score DESC
   `;
 }
@@ -203,6 +261,7 @@ function mergeRows(rows: SearchRow[]): SourceAyah[] {
       arabicText: row.arabic_text,
       translation: row.translation || "Translation not loaded for this ayah.",
       source: row.source || "arabic",
+      direction: getReadingLanguageByEdition(row.source || undefined).direction,
       whyMatched: row.why_matched,
       score: Number(row.score),
     };

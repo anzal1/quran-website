@@ -19,9 +19,20 @@ type Edition = {
   type: string;
 };
 
+type AyahIndexEntry = {
+  arabicText: string;
+  reference: string;
+  surahId: number;
+  title: string;
+};
+
+const importBatchSize = Number(process.env.IMPORT_BATCH_SIZE || "500");
 const sqlFile = process.argv[2];
 const wantedIdentifiers = new Set(
-  (process.env.IMPORT_EDITION_IDENTIFIERS || "en.pickthall,en.sahih,en.yusufali,ar.muyassar")
+  (
+    process.env.IMPORT_EDITION_IDENTIFIERS ||
+    "en.sahih,ar.muyassar,ur.junagarhi,id.indonesian,tr.diyanet,fr.hamidullah,de.bubenheim"
+  )
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean),
@@ -36,6 +47,22 @@ async function main() {
   const databaseUrl =
     process.env.DATABASE_URL ?? "postgres://quran:quran@localhost:5432/quran_lens";
   const sql = postgres(databaseUrl, { max: 1 });
+
+  if (process.env.IMPORT_RESET === "true") {
+    await sql`
+      TRUNCATE
+        chat_messages,
+        chat_sessions,
+        bookmarks,
+        search_documents,
+        translations,
+        editions,
+        ayahs,
+        surahs
+      RESTART IDENTITY CASCADE
+    `;
+    console.log("Existing Quran Lens data reset.");
+  }
 
   const editionsBySourceId = await importEditions(sql);
   await importCoreTables(sql, editionsBySourceId);
@@ -86,46 +113,83 @@ async function importEditions(sql: postgres.Sql) {
 }
 
 async function importCoreTables(sql: postgres.Sql, editionsBySourceId: Map<number, Edition>) {
+  const surahsBatch = [];
   for await (const statement of readInsertStatements("surahs")) {
     for (const tuple of parseTuples(statement)) {
-      await sql`
-        INSERT INTO surahs (
-          id, number, name_ar, name_en, name_en_translation, revelation_type
-        )
-        VALUES (
-          ${Number(tuple[0])}, ${Number(tuple[1])}, ${String(tuple[2])},
-          ${String(tuple[3])}, ${String(tuple[4])}, ${String(tuple[5])}
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          name_ar = EXCLUDED.name_ar,
-          name_en = EXCLUDED.name_en,
-          name_en_translation = EXCLUDED.name_en_translation,
-          revelation_type = EXCLUDED.revelation_type
-      `;
+      surahsBatch.push({
+        id: Number(tuple[0]),
+        number: Number(tuple[1]),
+        name_ar: String(tuple[2]),
+        name_en: String(tuple[3]),
+        name_en_translation: String(tuple[4]),
+        revelation_type: String(tuple[5]),
+      });
     }
   }
 
+  if (surahsBatch.length > 0) {
+    await upsertSurahs(sql, surahsBatch);
+    console.log(`Imported ${surahsBatch.length} surahs.`);
+  }
+
+  const surahNamesById = new Map<number, { number: number; nameEn: string }>();
+  for (const surah of surahsBatch) {
+    surahNamesById.set(Number(surah.id), {
+      number: Number(surah.number),
+      nameEn: String(surah.name_en),
+    });
+  }
+
+  const ayahsById = new Map<number, AyahIndexEntry>();
+  let ayahsBatch = [];
+  let importedAyahs = 0;
   for await (const statement of readInsertStatements("ayahs")) {
     for (const tuple of parseTuples(statement)) {
       const arabicText = String(tuple[2]);
-      await sql`
-        INSERT INTO ayahs (
-          id, global_number, arabic_text, number_in_surah, page, surah_id,
-          hizb, juz, sajda, normalized_arabic
-        )
-        VALUES (
-          ${Number(tuple[0])}, ${Number(tuple[1])}, ${arabicText},
-          ${Number(tuple[3])}, ${Number(tuple[4])}, ${Number(tuple[5])},
-          ${Number(tuple[6])}, ${Number(tuple[7])}, ${Boolean(Number(tuple[8]))},
-          ${normalizeArabic(arabicText)}
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          arabic_text = EXCLUDED.arabic_text,
-          normalized_arabic = EXCLUDED.normalized_arabic
-      `;
+      const ayahId = Number(tuple[0]);
+      const surahId = Number(tuple[5]);
+      const numberInSurah = Number(tuple[3]);
+      const surah = surahNamesById.get(surahId);
+      const reference = `${surah?.number ?? surahId}:${numberInSurah}`;
+      const title = `${surah?.nameEn ?? "Surah"} ${reference}`;
+
+      ayahsById.set(ayahId, {
+        arabicText,
+        reference,
+        surahId,
+        title,
+      });
+
+      ayahsBatch.push({
+        id: ayahId,
+        global_number: Number(tuple[1]),
+        arabic_text: arabicText,
+        number_in_surah: numberInSurah,
+        page: Number(tuple[4]),
+        surah_id: surahId,
+        hizb: Number(tuple[6]),
+        juz: Number(tuple[7]),
+        sajda: Boolean(Number(tuple[8])),
+        normalized_arabic: normalizeArabic(arabicText),
+      });
+
+      if (ayahsBatch.length >= importBatchSize) {
+        await upsertAyahs(sql, ayahsBatch);
+        importedAyahs += ayahsBatch.length;
+        console.log(`Imported ${importedAyahs} ayahs.`);
+        ayahsBatch = [];
+      }
     }
   }
 
+  if (ayahsBatch.length > 0) {
+    await upsertAyahs(sql, ayahsBatch);
+    importedAyahs += ayahsBatch.length;
+    console.log(`Imported ${importedAyahs} ayahs.`);
+  }
+
+  let translationsBatch = [];
+  let documentsBatch = [];
   let importedTranslations = 0;
   for await (const statement of readInsertStatements("ayah_edition")) {
     for (const tuple of parseTuples(statement)) {
@@ -135,47 +199,119 @@ async function importCoreTables(sql: postgres.Sql, editionsBySourceId: Map<numbe
       if (Number(tuple[4]) === 1) continue;
 
       const text = String(tuple[3]);
-      await sql`
-        INSERT INTO translations (
-          ayah_id, edition_identifier, language, type, text
-        )
-        VALUES (
-          ${ayahId}, ${edition.identifier}, ${edition.language}, ${edition.type}, ${text}
-        )
-        ON CONFLICT (ayah_id, edition_identifier) DO UPDATE SET
-          text = EXCLUDED.text
-      `;
+      const ayah = ayahsById.get(ayahId);
+      if (!ayah) continue;
 
-      await sql`
-        INSERT INTO search_documents (
-          id, kind, ayah_id, surah_id, reference, language, title, content,
-          normalized_content, source
-        )
-        SELECT
-          ${`ayah:${ayahId}:${edition.identifier}`},
-          'ayah',
-          a.id,
-          a.surah_id,
-          s.number || ':' || a.number_in_surah,
-          ${edition.language},
-          s.name_en || ' ' || s.number || ':' || a.number_in_surah,
-          a.arabic_text || E'\n' || ${text},
-          ${normalizeSearchText(text)},
-          ${edition.identifier}
-        FROM ayahs a
-        JOIN surahs s ON s.id = a.surah_id
-        WHERE a.id = ${ayahId}
-        ON CONFLICT (id) DO UPDATE SET
-          content = EXCLUDED.content,
-          normalized_content = EXCLUDED.normalized_content
-      `;
+      translationsBatch.push({
+        ayah_id: ayahId,
+        edition_identifier: edition.identifier,
+        language: edition.language,
+        type: edition.type,
+        text,
+      });
+
+      documentsBatch.push({
+        id: `ayah:${ayahId}:${edition.identifier}`,
+        kind: "ayah",
+        ayah_id: ayahId,
+        surah_id: ayah.surahId,
+        reference: ayah.reference,
+        language: edition.language,
+        title: ayah.title,
+        content: `${ayah.arabicText}\n${text}`,
+        normalized_content: normalizeSearchText(text),
+        source: edition.identifier,
+      });
 
       importedTranslations += 1;
-      if (importedTranslations % 1000 === 0) {
+
+      if (translationsBatch.length >= importBatchSize) {
+        await upsertTranslations(sql, translationsBatch);
+        await upsertSearchDocuments(sql, documentsBatch);
         console.log(`Imported ${importedTranslations} selected translation rows.`);
+        translationsBatch = [];
+        documentsBatch = [];
       }
     }
   }
+
+  if (translationsBatch.length > 0) {
+    await upsertTranslations(sql, translationsBatch);
+    await upsertSearchDocuments(sql, documentsBatch);
+    console.log(`Imported ${importedTranslations} selected translation rows.`);
+  }
+}
+
+async function upsertSurahs(sql: postgres.Sql, rows: Record<string, unknown>[]) {
+  await sql`
+    INSERT INTO surahs ${sql(rows, "id", "number", "name_ar", "name_en", "name_en_translation", "revelation_type")}
+    ON CONFLICT (id) DO UPDATE SET
+      name_ar = EXCLUDED.name_ar,
+      name_en = EXCLUDED.name_en,
+      name_en_translation = EXCLUDED.name_en_translation,
+      revelation_type = EXCLUDED.revelation_type
+  `;
+}
+
+async function upsertAyahs(sql: postgres.Sql, rows: Record<string, unknown>[]) {
+  await sql`
+    INSERT INTO ayahs ${sql(
+      rows,
+      "id",
+      "global_number",
+      "arabic_text",
+      "number_in_surah",
+      "page",
+      "surah_id",
+      "hizb",
+      "juz",
+      "sajda",
+      "normalized_arabic",
+    )}
+    ON CONFLICT (id) DO UPDATE SET
+      arabic_text = EXCLUDED.arabic_text,
+      normalized_arabic = EXCLUDED.normalized_arabic
+  `;
+}
+
+async function upsertTranslations(sql: postgres.Sql, rows: Record<string, unknown>[]) {
+  await sql`
+    INSERT INTO translations ${sql(
+      rows,
+      "ayah_id",
+      "edition_identifier",
+      "language",
+      "type",
+      "text",
+    )}
+    ON CONFLICT (ayah_id, edition_identifier) DO UPDATE SET
+      text = EXCLUDED.text
+  `;
+}
+
+async function upsertSearchDocuments(sql: postgres.Sql, rows: Record<string, unknown>[]) {
+  await sql`
+    INSERT INTO search_documents ${sql(
+      rows,
+      "id",
+      "kind",
+      "ayah_id",
+      "surah_id",
+      "reference",
+      "language",
+      "title",
+      "content",
+      "normalized_content",
+      "source",
+    )}
+    ON CONFLICT (id) DO UPDATE SET
+      embedding = CASE
+        WHEN search_documents.content IS DISTINCT FROM EXCLUDED.content THEN NULL
+        ELSE search_documents.embedding
+      END,
+      content = EXCLUDED.content,
+      normalized_content = EXCLUDED.normalized_content
+  `;
 }
 
 async function* readInsertStatements(table: string) {

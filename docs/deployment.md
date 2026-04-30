@@ -49,6 +49,16 @@ IMPORT_EDITION_IDENTIFIERS=en.sahih,ar.muyassar \
 npm run db:import:quran -- /tmp/quran-database/quran.sql
 ```
 
+For a multilingual production launch, import the languages exposed in the app:
+
+```bash
+IMPORT_RESET=true \
+IMPORT_EDITION_IDENTIFIERS=en.sahih,ar.muyassar,ur.junagarhi,id.indonesian,tr.diyanet,fr.hamidullah,de.bubenheim \
+npm run db:import:quran -- /tmp/quran-database/quran.sql
+```
+
+Use `IMPORT_RESET=true` only for the initial production load or a deliberate full reimport. It clears existing Quran rows, bookmarks, and chat rows before loading the upstream dataset.
+
 Generate semantic vectors for every imported search document:
 
 ```bash
@@ -63,7 +73,19 @@ npm run db:embed
 
 The import is idempotent. Re-running it updates existing rows and leaves already-generated embeddings in place unless the document content changes.
 
-Expected production counts for one translation are roughly 114 surahs, 6,236 ayahs, 6,236 translations, and 6,236 search documents. Each extra selected translation adds another 6,236 translation/search-document rows and more embedding work.
+Expected production counts for one translation are roughly 114 surahs, 6,236 ayahs, 6,236 translations, and 6,236 search documents. Each extra selected translation adds another 6,236 translation/search-document rows and more embedding work. The multilingual import above creates roughly 43,652 searchable documents.
+
+## Custom Domain
+
+Use a subdomain for the Quran app so the portfolio can keep the root domain. A clean choice is:
+
+```text
+quran.your-domain.com
+```
+
+In Vercel, add the subdomain under Project Settings -> Domains. In your domain DNS, add the record Vercel shows, usually a `CNAME` from the subdomain to `cname.vercel-dns.com`.
+
+Set `NEXT_PUBLIC_SITE_URL` to the final subdomain after it is verified.
 
 ## VPS Deployment
 

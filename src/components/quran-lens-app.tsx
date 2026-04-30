@@ -4,11 +4,17 @@ import {
   ArrowRight,
   CircleNotch,
   Compass,
+  GlobeHemisphereWest,
   MagnifyingGlass,
   Sparkle,
 } from "@phosphor-icons/react";
 import { FormEvent, useMemo, useState } from "react";
 
+import {
+  defaultReadingLanguage,
+  getReadingLanguageByEdition,
+  readingLanguages,
+} from "@/lib/languages";
 import { cn } from "@/lib/utils";
 import type { SearchMode, SearchResponse, SourceAyah } from "@/lib/types";
 
@@ -23,26 +29,37 @@ const prompts = [
 export function QuranLensApp() {
   const [query, setQuery] = useState("");
   const mode: SearchMode = "quran";
+  const [selectedEdition, setSelectedEdition] = useState(defaultReadingLanguage.edition);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const readingLanguage = useMemo(
+    () => getReadingLanguageByEdition(selectedEdition),
+    [selectedEdition],
+  );
 
-  async function runSearch(nextQuery = query) {
+  async function runSearch(nextQuery = query, nextEdition = selectedEdition) {
     const trimmed = nextQuery.trim();
     if (!trimmed) {
       setError("Type a question or choose one of the examples.");
       return;
     }
 
+    const activeLanguage = getReadingLanguageByEdition(nextEdition);
     setIsLoading(true);
     setError("");
     setQuery(trimmed);
+    setSelectedEdition(activeLanguage.edition);
 
     try {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed, mode }),
+        body: JSON.stringify({
+          query: trimmed,
+          mode,
+          preferredEdition: activeLanguage.edition,
+        }),
       });
 
       if (!response.ok) {
@@ -61,6 +78,13 @@ export function QuranLensApp() {
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void runSearch();
+  }
+
+  function onLanguageChange(nextEdition: string) {
+    setSelectedEdition(nextEdition);
+    if (result && query.trim()) {
+      void runSearch(query, nextEdition);
+    }
   }
 
   const visibleSources = result?.sources ?? [];
@@ -89,6 +113,29 @@ export function QuranLensApp() {
           <p className="mt-5 max-w-[39ch] text-sm leading-6 text-[#5d5b50]">
             Ask in your own words. Quran Lens finds relevant verses, gives a short answer, and keeps the citations visible.
           </p>
+
+          <div className="mt-5 rounded-3xl border border-[#263f35]/10 bg-white/55 p-3">
+            <label className="block space-y-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-[#2d332d]">
+                <GlobeHemisphereWest size={18} weight="duotone" />
+                Reading language
+              </span>
+              <select
+                value={selectedEdition}
+                onChange={(event) => onLanguageChange(event.target.value)}
+                className="h-11 w-full rounded-2xl border border-[#263f35]/12 bg-[#fffdf7] px-3 text-sm font-semibold text-[#242b24] outline-none transition focus:border-[#2f6656]/35 focus:shadow-[0_0_0_4px_rgba(47,102,86,0.09)]"
+              >
+                {readingLanguages.map((language) => (
+                  <option key={language.edition} value={language.edition}>
+                    {language.nativeLabel} / {language.label}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs leading-5 text-[#777265]">
+                Answers and verse text use {readingLanguage.sourceLabel} when it is loaded.
+              </span>
+            </label>
+          </div>
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <label className="block space-y-2">
@@ -166,6 +213,7 @@ export function QuranLensApp() {
             isLoading={isLoading}
             error={result ? error : ""}
             sources={visibleSources}
+            readingLanguage={readingLanguage.nativeLabel}
           />
 
           <div className="rounded-[28px] border border-[#263f35]/10 bg-[#fffaf0]/76 p-4 shadow-[0_24px_70px_-54px_rgba(52,48,40,0.65)] backdrop-blur-xl sm:p-5">
@@ -217,11 +265,13 @@ function AnswerPanel({
   isLoading,
   error,
   sources,
+  readingLanguage,
 }: {
   result: SearchResponse | null;
   isLoading: boolean;
   error: string;
   sources: SourceAyah[];
+  readingLanguage: string;
 }) {
   return (
     <div className="min-h-[320px] rounded-[28px] border border-[#263f35]/10 bg-[#fffaf0]/82 p-5 shadow-[0_28px_80px_-52px_rgba(52,48,40,0.65)] backdrop-blur-xl sm:p-6">
@@ -280,7 +330,7 @@ function AnswerPanel({
       <div className="mt-8 grid gap-3 border-t border-[#263f35]/10 pt-4 sm:grid-cols-3">
         <Metric label="Verses shown" value={String(sources.length)} />
         <Metric label="Citations" value={sources.length > 0 ? "Visible" : "After search"} />
-        <Metric label="Trust" value="Checkable" />
+        <Metric label="Language" value={result?.answerLanguage ?? readingLanguage} />
       </div>
     </div>
   );
@@ -512,7 +562,13 @@ function SourceCard({
         <p dir="rtl" className="text-right text-2xl leading-[2.1] text-[#1f2822]">
           {source.arabicText}
         </p>
-        <p className="border-t border-[#263f35]/10 pt-4 text-base leading-7 text-[#464138]">
+        <p
+          dir={source.direction ?? "ltr"}
+          className={cn(
+            "border-t border-[#263f35]/10 pt-4 text-base leading-7 text-[#464138]",
+            source.direction === "rtl" && "text-right",
+          )}
+        >
           {source.translation}
         </p>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -589,12 +645,9 @@ function EmptyState({ onSearch }: { onSearch: () => void }) {
 }
 
 function formatSource(source: string) {
-  const knownSources: Record<string, string> = {
-    "en.pickthall": "Pickthall translation",
-    "en.sahih": "Saheeh International",
-    "en.yusufali": "Yusuf Ali translation",
-    "ar.muyassar": "Tafsir Al-Muyassar",
-  };
+  const knownSources: Record<string, string> = Object.fromEntries(
+    readingLanguages.map((language) => [language.edition, language.sourceLabel]),
+  );
 
   return knownSources[source] ?? source;
 }

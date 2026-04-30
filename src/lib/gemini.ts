@@ -15,7 +15,11 @@ export function hasGemini() {
   return Boolean(process.env.GEMINI_API_KEY);
 }
 
-export async function generateGroundedAnswer(query: string, sources: SourceAyah[]) {
+export async function generateGroundedAnswer(
+  query: string,
+  sources: SourceAyah[],
+  answerLanguage = "English",
+) {
   const ai = getClient();
   if (!ai) {
     return fallbackAnswer(sources);
@@ -34,6 +38,7 @@ export async function generateGroundedAnswer(query: string, sources: SourceAyah[
 
 Rules:
 - Answer only from the provided ayah sources.
+- Write the answer in ${answerLanguage}.
 - Do not issue fatwas, legal rulings, or claims outside the sources.
 - Keep the answer very concise and calm.
 - Use simple wording for a general reader.

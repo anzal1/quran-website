@@ -11,6 +11,7 @@ export type SourceAyah = {
   arabicText: string;
   translation: string;
   source: string;
+  direction?: "ltr" | "rtl";
   whyMatched: string;
   score: number;
 };
@@ -18,6 +19,8 @@ export type SourceAyah = {
 export type SearchResponse = {
   query: string;
   mode: SearchMode;
+  preferredEdition: string;
+  answerLanguage: string;
   answer: string;
   sources: SourceAyah[];
   lenses: string[];
@@ -25,4 +28,3 @@ export type SearchResponse = {
   provider: "database" | "demo";
   aiProvider: "gemini" | "none";
 };
-
