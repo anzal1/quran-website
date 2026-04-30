@@ -1,0 +1,46 @@
+name: Generate Quran Embeddings
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: "Documents per Gemini batch. Gemini allows at most 100."
+        default: "100"
+        required: true
+      concurrency:
+        description: "Parallel Gemini embedding batches."
+        default: "3"
+        required: true
+      pause_ms:
+        description: "Pause between database cycles."
+        default: "200"
+        required: true
+
+concurrency:
+  group: quran-embeddings
+  cancel-in-progress: false
+
+jobs:
+  embed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_EMBEDDING_MODEL: gemini-embedding-001
+      EMBEDDING_DIMENSIONS: "768"
+      EMBED_BATCH_SIZE: ${{ inputs.batch_size }}
+      EMBED_CONCURRENCY: ${{ inputs.concurrency }}
+      EMBED_PAUSE_MS: ${{ inputs.pause_ms }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate pending embeddings
+        run: npm run db:embed:all
