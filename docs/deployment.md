@@ -42,13 +42,28 @@ IMPORT_EDITION_IDENTIFIERS=en.pickthall,en.sahih,en.yusufali,ar.muyassar \
 npm run db:import:quran -- /tmp/quran-database/quran.sql
 ```
 
-Generate semantic vectors in batches:
+For a small first production launch, use one English translation plus Arabic commentary/search support, for example:
+
+```bash
+IMPORT_EDITION_IDENTIFIERS=en.sahih,ar.muyassar \
+npm run db:import:quran -- /tmp/quran-database/quran.sql
+```
+
+Generate semantic vectors for every imported search document:
+
+```bash
+EMBED_BATCH_SIZE=64 npm run db:embed:all
+```
+
+Or generate one batch at a time:
 
 ```bash
 npm run db:embed
 ```
 
-Run `npm run db:embed` repeatedly or increase `EMBED_BATCH_SIZE`.
+The import is idempotent. Re-running it updates existing rows and leaves already-generated embeddings in place unless the document content changes.
+
+Expected production counts for one translation are roughly 114 surahs, 6,236 ayahs, 6,236 translations, and 6,236 search documents. Each extra selected translation adds another 6,236 translation/search-document rows and more embedding work.
 
 ## VPS Deployment
 
