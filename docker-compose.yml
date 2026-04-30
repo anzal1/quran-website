@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: quran-lens-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quran
+      POSTGRES_PASSWORD: quran
+      POSTGRES_DB: quran_lens
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quran -d quran_lens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quran-lens-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://quran:quran@postgres:5432/quran_lens
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-768}
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+

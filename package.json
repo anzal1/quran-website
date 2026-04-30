@@ -6,21 +6,37 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup": "docker compose up -d postgres && npm run db:migrate && npm run db:seed",
+    "local": "npm run setup && npm run dev",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed-demo.ts",
+    "db:embed": "tsx scripts/embed-documents.ts",
+    "db:import:quran": "tsx scripts/import-quran-sql.ts"
   },
   "dependencies": {
+    "@google/genai": "^1.51.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
     "next": "16.2.4",
+    "postgres": "^3.4.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.4.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
