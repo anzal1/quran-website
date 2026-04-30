@@ -1,0 +1,18 @@
+{
+  "name": "Quran Lens",
+  "short_name": "Quran Lens",
+  "description": "Evidence-first Quran search with cited answers and connected themes.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F2E8",
+  "theme_color": "#123C36",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

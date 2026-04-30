@@ -20,6 +20,10 @@ Set `GEMINI_API_KEY` in `.env`. The app uses `GEMINI_MODEL`, defaulting to `gemi
 
 Without a key, search still works against the loaded data and returns a non-AI fallback answer.
 
+## Production URL
+
+Set `NEXT_PUBLIC_SITE_URL` to the final deployed URL, for example `https://your-domain.com`. This is used for canonical URLs, Open Graph previews, and the sitemap.
+
 ## Importing AbdullahGhanem/quran-database
 
 Download and unzip the upstream dump:
@@ -58,4 +62,3 @@ docker compose exec app npm run db:seed
 ```
 
 Put Caddy or Nginx in front for HTTPS. The app container listens on port `3000`.
-
