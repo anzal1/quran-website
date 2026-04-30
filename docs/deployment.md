@@ -64,7 +64,7 @@ Use `IMPORT_RESET=true` only for the initial production load or a deliberate ful
 Generate semantic vectors for every imported search document:
 
 ```bash
-EMBED_BATCH_SIZE=100 npm run db:embed:all
+EMBED_BATCH_SIZE=100 EMBED_CONCURRENCY=3 npm run db:embed:all
 ```
 
 Or generate one batch at a time:

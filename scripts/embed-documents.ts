@@ -12,7 +12,7 @@ async function main() {
   const databaseUrl =
     process.env.DATABASE_URL ?? "postgres://quran:quran@localhost:5432/quran_lens";
   const sql = postgres(databaseUrl, { max: 1 });
-  const batchSize = Number(process.env.EMBED_BATCH_SIZE || "100");
+  const batchSize = Math.min(Number(process.env.EMBED_BATCH_SIZE || "100"), 100);
 
   const rows = await sql<{ id: string; content: string }[]>`
     SELECT id, content
