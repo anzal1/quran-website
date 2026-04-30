@@ -2,7 +2,7 @@ import "./load-env";
 
 import postgres from "postgres";
 
-import { embedText } from "../src/lib/gemini";
+import { embedTexts } from "../src/lib/gemini";
 
 async function main() {
   if (!process.env.GEMINI_API_KEY) {
@@ -12,7 +12,7 @@ async function main() {
   const databaseUrl =
     process.env.DATABASE_URL ?? "postgres://quran:quran@localhost:5432/quran_lens";
   const sql = postgres(databaseUrl, { max: 1 });
-  const batchSize = Number(process.env.EMBED_BATCH_SIZE || "32");
+  const batchSize = Number(process.env.EMBED_BATCH_SIZE || "100");
 
   const rows = await sql<{ id: string; content: string }[]>`
     SELECT id, content
@@ -22,18 +22,22 @@ async function main() {
     LIMIT ${batchSize}
   `;
 
-  for (const row of rows) {
-    const embedding = await embedText(row.content);
-    if (!embedding) continue;
+  const embeddings = await embedTexts(rows.map((row) => row.content));
 
-    const vector = `[${embedding.join(",")}]`;
-    await sql`
-      UPDATE search_documents
-      SET embedding = ${vector}::vector
-      WHERE id = ${row.id}
-    `;
-    console.log(`Embedded ${row.id}`);
-  }
+  await sql.begin(async (tx) => {
+    for (const [index, row] of rows.entries()) {
+      const embedding = embeddings[index];
+      if (!embedding) continue;
+
+      const vector = `[${embedding.join(",")}]`;
+      await tx`
+        UPDATE search_documents
+        SET embedding = ${vector}::vector
+        WHERE id = ${row.id}
+      `;
+      console.log(`Embedded ${row.id}`);
+    }
+  });
 
   await sql.end();
   console.log(`Embedding batch complete. Processed ${rows.length} documents.`);

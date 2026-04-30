@@ -2,7 +2,7 @@ import "./load-env";
 
 import postgres from "postgres";
 
-import { embedText } from "../src/lib/gemini";
+import { embedTexts } from "../src/lib/gemini";
 
 type SearchDocument = {
   id: string;
@@ -17,7 +17,7 @@ async function main() {
   const databaseUrl =
     process.env.DATABASE_URL ?? "postgres://quran:quran@localhost:5432/quran_lens";
   const sql = postgres(databaseUrl, { max: 1 });
-  const batchSize = Number(process.env.EMBED_BATCH_SIZE || "64");
+  const batchSize = Number(process.env.EMBED_BATCH_SIZE || "100");
   const pauseMs = Number(process.env.EMBED_PAUSE_MS || "250");
   let totalEmbedded = 0;
 
@@ -33,19 +33,23 @@ async function main() {
 
       if (rows.length === 0) break;
 
-      for (const row of rows) {
-        const embedding = await embedText(row.content);
-        if (!embedding) continue;
+      const embeddings = await embedTexts(rows.map((row) => row.content));
 
-        const vector = `[${embedding.join(",")}]`;
-        await sql`
-          UPDATE search_documents
-          SET embedding = ${vector}::vector
-          WHERE id = ${row.id}
-        `;
+      await sql.begin(async (tx) => {
+        for (const [index, row] of rows.entries()) {
+          const embedding = embeddings[index];
+          if (!embedding) continue;
 
-        totalEmbedded += 1;
-      }
+          const vector = `[${embedding.join(",")}]`;
+          await tx`
+            UPDATE search_documents
+            SET embedding = ${vector}::vector
+            WHERE id = ${row.id}
+          `;
+
+          totalEmbedded += 1;
+        }
+      });
 
       const [{ remaining }] = await sql<{ remaining: number }[]>`
         SELECT count(*)::int AS remaining

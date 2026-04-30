@@ -70,21 +70,27 @@ Return no more than 85 words total. Use 2 short paragraphs and no markdown table
 }
 
 export async function embedText(text: string) {
+  const embeddings = await embedTexts([text]);
+  return embeddings[0] ?? null;
+}
+
+export async function embedTexts(texts: string[]) {
   const ai = getClient();
-  if (!ai) return null;
+  if (!ai || texts.length === 0) return [];
 
   const model = process.env.GEMINI_EMBEDDING_MODEL || defaultEmbeddingModel;
   const dimensions = Number(process.env.EMBEDDING_DIMENSIONS || "768");
   const response = await ai.models.embedContent({
     model,
-    contents: text,
+    contents: texts,
     config: {
       outputDimensionality: dimensions,
     },
   });
 
-  const embedding = response.embeddings?.[0]?.values;
-  return embedding && embedding.length > 0 ? embedding : null;
+  return (response.embeddings ?? [])
+    .map((embedding) => embedding.values ?? [])
+    .filter((embedding) => embedding.length > 0);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
