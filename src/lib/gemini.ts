@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 
 import type { SourceAyah } from "./types";
 
-const defaultModel = "gemini-2.5-flash";
+const defaultModel = "gemini-flash-latest";
 const defaultEmbeddingModel = "gemini-embedding-001";
 
 function getClient() {

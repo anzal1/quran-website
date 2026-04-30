@@ -16,7 +16,9 @@ Open `http://localhost:3000`.
 
 ## Gemini
 
-Set `GEMINI_API_KEY` in `.env`. The app uses `GEMINI_MODEL`, defaulting to `gemini-2.5-flash`, and `GEMINI_EMBEDDING_MODEL`, defaulting to `gemini-embedding-001`.
+Set `GEMINI_API_KEY` in `.env`. The app uses `GEMINI_MODEL`, defaulting to `gemini-flash-latest`, and `GEMINI_EMBEDDING_MODEL`, defaulting to `gemini-embedding-001`.
+
+`gemini-flash-latest` tracks Google's newest Flash model family release. For stricter production stability, pin `GEMINI_MODEL` to a specific stable model string instead.
 
 Without a key, search still works against the loaded data and returns a non-AI fallback answer.
 
