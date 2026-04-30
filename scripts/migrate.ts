@@ -1,3 +1,5 @@
+import "./load-env";
+
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -21,4 +23,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

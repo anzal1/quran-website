@@ -1,3 +1,5 @@
+import "./load-env";
+
 import postgres from "postgres";
 
 import { embedText } from "../src/lib/gemini";
@@ -41,4 +43,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

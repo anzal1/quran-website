@@ -1,3 +1,5 @@
+import "./load-env";
+
 import fs from "node:fs";
 import readline from "node:readline";
 
@@ -291,4 +293,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

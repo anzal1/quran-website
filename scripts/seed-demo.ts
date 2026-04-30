@@ -1,3 +1,5 @@
+import "./load-env";
+
 import postgres from "postgres";
 
 import { normalizeArabic, normalizeSearchText } from "../src/lib/arabic";
@@ -113,4 +115,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-
