@@ -79,6 +79,8 @@ Expected production counts for one translation are roughly 114 surahs, 6,236 aya
 
 Until embeddings are generated, the app automatically skips semantic vector search and uses fast reference, keyword, and fuzzy search. Set `ENABLE_SEMANTIC_SEARCH=false` if you ever need to force vector search off in production.
 
+The completed multilingual embedding export is published at [anzal1/quran-lens-embeddings](https://github.com/anzal1/quran-lens-embeddings). It contains the 43,652 precomputed vectors without translation text.
+
 ## Custom Domain
 
 Use a subdomain for the Quran app so the portfolio can keep the root domain. A clean choice is:

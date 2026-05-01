@@ -38,6 +38,8 @@ npm run db:import:quran -- /path/to/quran.sql
 
 See [docs/deployment.md](docs/deployment.md) for importing the AbdullahGhanem Quran SQL dump, embedding documents, and deploying the stack on a VPS.
 
+Precomputed multilingual embeddings are published separately at [anzal1/quran-lens-embeddings](https://github.com/anzal1/quran-lens-embeddings).
+
 ## Safety Boundary
 
 Quran Lens is a study and exploration tool. It retrieves ayahs, shows citations, and can summarize only from provided sources. It is not a tafsir authority or a replacement for qualified scholarship.
